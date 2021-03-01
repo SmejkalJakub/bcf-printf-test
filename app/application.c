@@ -26,8 +26,12 @@
 #define PAGE_INDEX_MENU -1
 #define CO2_UPDATE_INTERVAL (1 * 60 * 1000)
 
-bc_led_t led;
+twr_led_t led;
 bool led_state = false;
+
+// Button instance
+twr_button_t button;
+uint16_t button_event_count = 0;
 
 static struct
 {
@@ -69,93 +73,95 @@ static int menu_item = 0;
 
 static struct
 {
-    bc_tick_t next_update;
+    twr_tick_t next_update;
     bool mqtt;
 
 } lcd;
 
-void battery_event_handler(bc_module_battery_event_t event, void *event_param);
+void battery_event_handler(twr_module_battery_event_t event, void *event_param);
 
 static void lcd_page_render();
-static void humidity_tag_init(bc_tag_humidity_revision_t revision, bc_i2c_channel_t i2c_channel, humidity_tag_t *tag);
-static void barometer_tag_init(bc_i2c_channel_t i2c_channel, barometer_tag_t *tag);
+static void humidity_tag_init(twr_tag_humidity_revision_t revision, twr_i2c_channel_t i2c_channel, humidity_tag_t *tag);
+static void barometer_tag_init(twr_i2c_channel_t i2c_channel, barometer_tag_t *tag);
 
-void lcd_event_handler(bc_module_lcd_event_t event, void *event_param);
-void tmp112_event_handler(bc_tmp112_t *self, bc_tmp112_event_t event, void *event_param);
-void humidity_tag_event_handler(bc_tag_humidity_t *self, bc_tag_humidity_event_t event, void *event_param);
-void barometer_tag_event_handler(bc_tag_barometer_t *self, bc_tag_barometer_event_t event, void *event_param);
-void co2_event_handler(bc_module_co2_event_t event, void *event_param);
+void lcd_event_handler(twr_module_lcd_event_t event, void *event_param);
+void tmp112_event_handler(twr_tmp112_t *self, twr_tmp112_event_t event, void *event_param);
+void humidity_tag_event_handler(twr_tag_humidity_t *self, twr_tag_humidity_event_t event, void *event_param);
+void barometer_tag_event_handler(twr_tag_barometer_t *self, twr_tag_barometer_event_t event, void *event_param);
+void co2_event_handler(twr_module_co2_event_t event, void *event_param);
 
 void application_init(void)
 {
 
-    bc_log_init(BC_LOG_LEVEL_DUMP, BC_LOG_TIMESTAMP_ABS);
+    twr_log_init(TWR_LOG_LEVEL_DEBUG, TWR_LOG_TIMESTAMP_ABS);
 
-    bc_led_init(&led, BC_GPIO_LED, false, false);
-    bc_led_set_mode(&led, BC_LED_MODE_OFF);
+    twr_led_init(&led, TWR_GPIO_LED, false, false);
+    twr_led_set_mode(&led, TWR_LED_MODE_OFF);
 
-    bc_radio_init(BC_RADIO_MODE_NODE_SLEEPING);
+    twr_radio_init(TWR_RADIO_MODE_NODE_SLEEPING);
 
     //----------------------------
 
-    static bc_tmp112_t temperature;
-    bc_tmp112_init(&temperature, BC_I2C_I2C0, 0x49);
-    bc_tmp112_set_event_handler(&temperature, tmp112_event_handler, NULL);
-    bc_tmp112_set_update_interval(&temperature, TMP112_UPDATE_INTERVAL);
+    static twr_tmp112_t temperature;
+    twr_tmp112_init(&temperature, TWR_I2C_I2C0, 0x49);
+    twr_tmp112_set_event_handler(&temperature, tmp112_event_handler, NULL);
+    twr_tmp112_set_update_interval(&temperature, TMP112_UPDATE_INTERVAL);
 
     //----------------------------
 
     static humidity_tag_t humidity_tag_0_0;
-    humidity_tag_init(BC_TAG_HUMIDITY_REVISION_R1, BC_I2C_I2C0, &humidity_tag_0_0);
+    humidity_tag_init(TWR_TAG_HUMIDITY_REVISION_R1, TWR_I2C_I2C0, &humidity_tag_0_0);
 
     static humidity_tag_t humidity_tag_0_2;
-    humidity_tag_init(BC_TAG_HUMIDITY_REVISION_R2, BC_I2C_I2C0, &humidity_tag_0_2);
+    humidity_tag_init(TWR_TAG_HUMIDITY_REVISION_R2, TWR_I2C_I2C0, &humidity_tag_0_2);
 
     static humidity_tag_t humidity_tag_0_4;
-    humidity_tag_init(BC_TAG_HUMIDITY_REVISION_R3, BC_I2C_I2C0, &humidity_tag_0_4);
+    humidity_tag_init(TWR_TAG_HUMIDITY_REVISION_R3, TWR_I2C_I2C0, &humidity_tag_0_4);
 
     static humidity_tag_t humidity_tag_1_0;
-    humidity_tag_init(BC_TAG_HUMIDITY_REVISION_R1, BC_I2C_I2C1, &humidity_tag_1_0);
+    humidity_tag_init(TWR_TAG_HUMIDITY_REVISION_R1, TWR_I2C_I2C1, &humidity_tag_1_0);
 
     static humidity_tag_t humidity_tag_1_2;
-    humidity_tag_init(BC_TAG_HUMIDITY_REVISION_R2, BC_I2C_I2C1, &humidity_tag_1_2);
+    humidity_tag_init(TWR_TAG_HUMIDITY_REVISION_R2, TWR_I2C_I2C1, &humidity_tag_1_2);
 
     static humidity_tag_t humidity_tag_1_4;
-    humidity_tag_init(BC_TAG_HUMIDITY_REVISION_R3, BC_I2C_I2C1, &humidity_tag_1_4);
+    humidity_tag_init(TWR_TAG_HUMIDITY_REVISION_R3, TWR_I2C_I2C1, &humidity_tag_1_4);
 
     //----------------------------
 
     static barometer_tag_t barometer_tag_0_0;
-    barometer_tag_init(BC_I2C_I2C0, &barometer_tag_0_0);
+    barometer_tag_init(TWR_I2C_I2C0, &barometer_tag_0_0);
 
     static barometer_tag_t barometer_tag_1_0;
-    barometer_tag_init(BC_I2C_I2C1, &barometer_tag_1_0);
+    barometer_tag_init(TWR_I2C_I2C1, &barometer_tag_1_0);
 
     //----------------------------
 
     static event_param_t co2_event_param = { .next_pub = 0 };
-    bc_module_co2_init();
-    bc_module_co2_set_update_interval(CO2_UPDATE_INTERVAL);
-    bc_module_co2_set_event_handler(co2_event_handler, &co2_event_param);
+    twr_module_co2_init();
+    twr_module_co2_set_update_interval(CO2_UPDATE_INTERVAL);
+    twr_module_co2_set_event_handler(co2_event_handler, &co2_event_param);
 
     //----------------------------
 
     memset(&values, 0xff, sizeof(values));
-    bc_module_lcd_init();
-    bc_module_lcd_set_event_handler(lcd_event_handler, NULL);
+    twr_module_lcd_init();
+    twr_module_lcd_set_event_handler(lcd_event_handler, NULL);
 
-    bc_module_battery_init();
-    bc_module_battery_set_event_handler(battery_event_handler, NULL);
-    bc_module_battery_set_update_interval(BATTERY_UPDATE_INTERVAL);
+    twr_module_battery_init();
+    twr_module_battery_set_event_handler(battery_event_handler, NULL);
+    twr_module_battery_set_update_interval(BATTERY_UPDATE_INTERVAL);
 
-    bc_radio_pairing_request("air-quality-monitor", VERSION);
+    twr_radio_pairing_request("air-quality-monitor", VERSION);
 
-    bc_led_pulse(&led, 2000);
+    twr_led_pulse(&led, 2000);
+
 }
 
 void application_task(void)
 {
-    if (!bc_module_lcd_is_ready())
+
+    if (!twr_module_lcd_is_ready())
     {
         return;
     }
@@ -166,10 +172,10 @@ void application_task(void)
     }
     else
     {
-        bc_scheduler_plan_current_relative(500);
+        twr_scheduler_plan_current_relative(500);
     }
 
-    bc_module_lcd_update();
+    twr_module_lcd_update();
 }
 
 static void lcd_page_render()
@@ -178,89 +184,89 @@ static void lcd_page_render()
     int w;
     char str[32];
 
-    bc_system_pll_enable();
+    twr_system_pll_enable();
 
-    bc_module_lcd_clear();
+    twr_module_lcd_clear();
 
     if ((page_index <= MAX_PAGE_INDEX) && (page_index != PAGE_INDEX_MENU))
     {
-        bc_module_lcd_set_font(&bc_font_ubuntu_15);
-        bc_module_lcd_draw_string(10, 5, pages[page_index].name0, true);
+        twr_module_lcd_set_font(&twr_font_ubuntu_15);
+        twr_module_lcd_draw_string(10, 5, pages[page_index].name0, true);
 
-        bc_module_lcd_set_font(&bc_font_ubuntu_28);
+        twr_module_lcd_set_font(&twr_font_ubuntu_28);
         snprintf(str, sizeof(str), pages[page_index].format0, *pages[page_index].value0);
-        w = bc_module_lcd_draw_string(25, 25, str, true);
-        bc_module_lcd_set_font(&bc_font_ubuntu_15);
-        w = bc_module_lcd_draw_string(w, 35, pages[page_index].unit0, true);
+        w = twr_module_lcd_draw_string(25, 25, str, true);
+        twr_module_lcd_set_font(&twr_font_ubuntu_15);
+        w = twr_module_lcd_draw_string(w, 35, pages[page_index].unit0, true);
 
-        bc_module_lcd_set_font(&bc_font_ubuntu_15);
-        bc_module_lcd_draw_string(10, 55, pages[page_index].name1, true);
+        twr_module_lcd_set_font(&twr_font_ubuntu_15);
+        twr_module_lcd_draw_string(10, 55, pages[page_index].name1, true);
 
-        bc_module_lcd_set_font(&bc_font_ubuntu_28);
+        twr_module_lcd_set_font(&twr_font_ubuntu_28);
         snprintf(str, sizeof(str), pages[page_index].format1, *pages[page_index].value1);
-        w = bc_module_lcd_draw_string(25, 75, str, true);
-        bc_module_lcd_set_font(&bc_font_ubuntu_15);
-        bc_module_lcd_draw_string(w, 85, pages[page_index].unit1, true);
+        w = twr_module_lcd_draw_string(25, 75, str, true);
+        twr_module_lcd_set_font(&twr_font_ubuntu_15);
+        twr_module_lcd_draw_string(w, 85, pages[page_index].unit1, true);
     }
 
     snprintf(str, sizeof(str), "%d/%d", page_index + 1, MAX_PAGE_INDEX + 1);
-    bc_module_lcd_set_font(&bc_font_ubuntu_13);
-    bc_module_lcd_draw_string(55, 115, str, true);
+    twr_module_lcd_set_font(&twr_font_ubuntu_13);
+    twr_module_lcd_draw_string(55, 115, str, true);
 
-    bc_system_pll_disable();
+    twr_system_pll_disable();
 }
 
-static void humidity_tag_init(bc_tag_humidity_revision_t revision, bc_i2c_channel_t i2c_channel, humidity_tag_t *tag)
+static void humidity_tag_init(twr_tag_humidity_revision_t revision, twr_i2c_channel_t i2c_channel, humidity_tag_t *tag)
 {
     memset(tag, 0, sizeof(*tag));
 
-    if (revision == BC_TAG_HUMIDITY_REVISION_R1)
+    if (revision == TWR_TAG_HUMIDITY_REVISION_R1)
     {
-        tag->param.channel = BC_RADIO_PUB_CHANNEL_R1_I2C0_ADDRESS_DEFAULT;
+        tag->param.channel = TWR_RADIO_PUB_CHANNEL_R1_I2C0_ADDRESS_DEFAULT;
     }
-    else if (revision == BC_TAG_HUMIDITY_REVISION_R2)
+    else if (revision == TWR_TAG_HUMIDITY_REVISION_R2)
     {
-        tag->param.channel = BC_RADIO_PUB_CHANNEL_R2_I2C0_ADDRESS_DEFAULT;
+        tag->param.channel = TWR_RADIO_PUB_CHANNEL_R2_I2C0_ADDRESS_DEFAULT;
     }
-    else if (revision == BC_TAG_HUMIDITY_REVISION_R3)
+    else if (revision == TWR_TAG_HUMIDITY_REVISION_R3)
     {
-        tag->param.channel = BC_RADIO_PUB_CHANNEL_R3_I2C0_ADDRESS_DEFAULT;
+        tag->param.channel = TWR_RADIO_PUB_CHANNEL_R3_I2C0_ADDRESS_DEFAULT;
     }
     else
     {
         return;
     }
 
-    if (i2c_channel == BC_I2C_I2C1)
+    if (i2c_channel == TWR_I2C_I2C1)
     {
         tag->param.channel |= 0x80;
     }
 
-    bc_tag_humidity_init(&tag->self, revision, i2c_channel, BC_TAG_HUMIDITY_I2C_ADDRESS_DEFAULT);
+    twr_tag_humidity_init(&tag->self, revision, i2c_channel, TWR_TAG_HUMIDITY_I2C_ADDRESS_DEFAULT);
 
-    bc_tag_humidity_set_update_interval(&tag->self, HUMIDITY_TAG_UPDATE_INTERVAL);
+    twr_tag_humidity_set_update_interval(&tag->self, HUMIDITY_TAG_UPDATE_INTERVAL);
 
-    bc_tag_humidity_set_event_handler(&tag->self, humidity_tag_event_handler, &tag->param);
+    twr_tag_humidity_set_event_handler(&tag->self, humidity_tag_event_handler, &tag->param);
 }
 
-static void barometer_tag_init(bc_i2c_channel_t i2c_channel, barometer_tag_t *tag)
+static void barometer_tag_init(twr_i2c_channel_t i2c_channel, barometer_tag_t *tag)
 {
     memset(tag, 0, sizeof(*tag));
 
-    tag->param.channel = BC_RADIO_PUB_CHANNEL_R1_I2C0_ADDRESS_DEFAULT;
+    tag->param.channel = TWR_RADIO_PUB_CHANNEL_R1_I2C0_ADDRESS_DEFAULT;
 
-    bc_tag_barometer_init(&tag->self, i2c_channel);
+    twr_tag_barometer_init(&tag->self, i2c_channel);
 
-    bc_tag_barometer_set_update_interval(&tag->self, BAROMETER_TAG_UPDATE_INTERVAL);
+    twr_tag_barometer_set_update_interval(&tag->self, BAROMETER_TAG_UPDATE_INTERVAL);
 
-    bc_tag_barometer_set_event_handler(&tag->self, barometer_tag_event_handler, &tag->param);
+    twr_tag_barometer_set_event_handler(&tag->self, barometer_tag_event_handler, &tag->param);
 }
 
-void lcd_event_handler(bc_module_lcd_event_t event, void *event_param)
+void lcd_event_handler(twr_module_lcd_event_t event, void *event_param)
 {
     (void) event_param;
 
-    if (event == BC_MODULE_LCD_EVENT_LEFT_CLICK)
+    if (event == TWR_MODULE_LCD_EVENT_LEFT_CLICK)
     {
         if ((page_index != PAGE_INDEX_MENU))
         {
@@ -284,9 +290,9 @@ void lcd_event_handler(bc_module_lcd_event_t event, void *event_param)
 
         static uint16_t left_event_count = 0;
         left_event_count++;
-        bc_radio_pub_event_count(BC_RADIO_PUB_EVENT_LCD_BUTTON_LEFT, &left_event_count);
+        twr_radio_pub_event_count(TWR_RADIO_PUB_EVENT_LCD_BUTTON_LEFT, &left_event_count);
     }
-    else if(event == BC_MODULE_LCD_EVENT_RIGHT_CLICK)
+    else if(event == TWR_MODULE_LCD_EVENT_RIGHT_CLICK)
     {
         if ((page_index != PAGE_INDEX_MENU) || (menu_item == 0))
         {
@@ -304,145 +310,145 @@ void lcd_event_handler(bc_module_lcd_event_t event, void *event_param)
 
         static uint16_t right_event_count = 0;
         right_event_count++;
-        bc_radio_pub_event_count(BC_RADIO_PUB_EVENT_LCD_BUTTON_RIGHT, &right_event_count);
+        twr_radio_pub_event_count(TWR_RADIO_PUB_EVENT_LCD_BUTTON_RIGHT, &right_event_count);
     }
 
-    bc_scheduler_plan_now(0);
+    twr_scheduler_plan_now(0);
 }
 
 
-void voc_lp_tag_event_handler(bc_tag_voc_lp_t *self, bc_tag_voc_lp_event_t event, void *event_param)
+void voc_lp_tag_event_handler(twr_tag_voc_lp_t *self, twr_tag_voc_lp_event_t event, void *event_param)
 {
     event_param_t *param = (event_param_t *)event_param;
 
-    if (event == BC_TAG_VOC_LP_EVENT_UPDATE)
+    if (event == TWR_TAG_VOC_LP_EVENT_UPDATE)
     {
         uint16_t value;
 
-        if (bc_tag_voc_lp_get_tvoc_ppb(self, &value))
+        if (twr_tag_voc_lp_get_tvoc_ppb(self, &value))
         {
-            if ((fabsf(value - param->value) >= VOC_LP_TAG_PUB_VALUE_CHANGE) || (param->next_pub < bc_scheduler_get_spin_tick()))
+            if ((fabsf(value - param->value) >= VOC_LP_TAG_PUB_VALUE_CHANGE) || (param->next_pub < twr_scheduler_get_spin_tick()))
             {
                 param->value = value;
-                param->next_pub = bc_scheduler_get_spin_tick() + VOC_LP_TAG_PUB_NO_CHANGE_INTERVAL;
+                param->next_pub = twr_scheduler_get_spin_tick() + VOC_LP_TAG_PUB_NO_CHANGE_INTERVAL;
 
                 int radio_tvoc = value;
 
                 values.tvoc = radio_tvoc;
 
-                bc_radio_pub_int("voc-lp-sensor/0:0/tvoc", &radio_tvoc);
-                bc_scheduler_plan_now(0);
+                twr_radio_pub_int("voc-lp-sensor/0:0/tvoc", &radio_tvoc);
+                twr_scheduler_plan_now(0);
 
             }
         }
     }
 }
 
-void tmp112_event_handler(bc_tmp112_t *self, bc_tmp112_event_t event, void *event_param)
+void tmp112_event_handler(twr_tmp112_t *self, twr_tmp112_event_t event, void *event_param)
 {
     float value;
     event_param_t *param = (event_param_t *)event_param;
 
-    if (event != BC_TMP112_EVENT_UPDATE)
+    if (event != TWR_TMP112_EVENT_UPDATE)
     {
         return;
     }
 
-    if (bc_tmp112_get_temperature_celsius(self, &value))
+    if (twr_tmp112_get_temperature_celsius(self, &value))
     {
-        if ((fabs(value - param->value) >= TMP112_PUB_VALUE_CHANGE) || (param->next_pub < bc_scheduler_get_spin_tick()))
+        if ((fabs(value - param->value) >= TMP112_PUB_VALUE_CHANGE) || (param->next_pub < twr_scheduler_get_spin_tick()))
         {
-            bc_radio_pub_temperature(param->channel, &value);
+            twr_radio_pub_temperature(param->channel, &value);
             param->value = value;
-            param->next_pub = bc_scheduler_get_spin_tick() + TMP112_PUB_NO_CHANGE_INTERVAL;
+            param->next_pub = twr_scheduler_get_spin_tick() + TMP112_PUB_NO_CHANGE_INTERVAL;
 
             values.temperature = value;
-            bc_scheduler_plan_now(0);
+            twr_scheduler_plan_now(0);
         }
     }
 }
 
-void humidity_tag_event_handler(bc_tag_humidity_t *self, bc_tag_humidity_event_t event, void *event_param)
+void humidity_tag_event_handler(twr_tag_humidity_t *self, twr_tag_humidity_event_t event, void *event_param)
 {
     float value;
     event_param_t *param = (event_param_t *)event_param;
 
-    if (event != BC_TAG_HUMIDITY_EVENT_UPDATE)
+    if (event != TWR_TAG_HUMIDITY_EVENT_UPDATE)
     {
         return;
     }
 
-    if (bc_tag_humidity_get_humidity_percentage(self, &value))
+    if (twr_tag_humidity_get_humidity_percentage(self, &value))
     {
-        if ((fabs(value - param->value) >= HUMIDITY_TAG_PUB_VALUE_CHANGE) || (param->next_pub < bc_scheduler_get_spin_tick()))
+        if ((fabs(value - param->value) >= HUMIDITY_TAG_PUB_VALUE_CHANGE) || (param->next_pub < twr_scheduler_get_spin_tick()))
         {
-            bc_radio_pub_humidity(param->channel, &value);
+            twr_radio_pub_humidity(param->channel, &value);
             param->value = value;
-            param->next_pub = bc_scheduler_get_spin_tick() + HUMIDITY_TAG_PUB_NO_CHANGE_INTERVAL;
+            param->next_pub = twr_scheduler_get_spin_tick() + HUMIDITY_TAG_PUB_NO_CHANGE_INTERVAL;
 
             values.humidity = value;
-            bc_scheduler_plan_now(0);
+            twr_scheduler_plan_now(0);
         }
     }
 }
 
-void barometer_tag_event_handler(bc_tag_barometer_t *self, bc_tag_barometer_event_t event, void *event_param)
+void barometer_tag_event_handler(twr_tag_barometer_t *self, twr_tag_barometer_event_t event, void *event_param)
 {
     float pascal;
     float meter;
     event_param_t *param = (event_param_t *)event_param;
 
-    if (event != BC_TAG_BAROMETER_EVENT_UPDATE)
+    if (event != TWR_TAG_BAROMETER_EVENT_UPDATE)
     {
         return;
     }
 
-    if (!bc_tag_barometer_get_pressure_pascal(self, &pascal))
+    if (!twr_tag_barometer_get_pressure_pascal(self, &pascal))
     {
         return;
     }
 
-    if ((fabs(pascal - param->value) >= BAROMETER_TAG_PUB_VALUE_CHANGE) || (param->next_pub < bc_scheduler_get_spin_tick()))
+    if ((fabs(pascal - param->value) >= BAROMETER_TAG_PUB_VALUE_CHANGE) || (param->next_pub < twr_scheduler_get_spin_tick()))
     {
 
-        if (!bc_tag_barometer_get_altitude_meter(self, &meter))
+        if (!twr_tag_barometer_get_altitude_meter(self, &meter))
         {
             return;
         }
 
-        bc_radio_pub_barometer(param->channel, &pascal, &meter);
+        twr_radio_pub_barometer(param->channel, &pascal, &meter);
         param->value = pascal;
-        param->next_pub = bc_scheduler_get_spin_tick() + BAROMETER_TAG_PUB_NO_CHANGE_INTERVAL;
+        param->next_pub = twr_scheduler_get_spin_tick() + BAROMETER_TAG_PUB_NO_CHANGE_INTERVAL;
 
         values.pressure = pascal / 100.0;
         values.altitude = meter;
-        bc_scheduler_plan_now(0);
+        twr_scheduler_plan_now(0);
     }
 }
 
-void co2_event_handler(bc_module_co2_event_t event, void *event_param)
+void co2_event_handler(twr_module_co2_event_t event, void *event_param)
 {
     event_param_t *param = (event_param_t *) event_param;
     float value;
 
-    if (event == BC_MODULE_CO2_EVENT_UPDATE)
+    if (event == TWR_MODULE_CO2_EVENT_UPDATE)
     {
-        if (bc_module_co2_get_concentration_ppm(&value))
+        if (twr_module_co2_get_concentration_ppm(&value))
         {
-            if ((fabs(value - param->value) >= CO2_PUB_VALUE_CHANGE) || (param->next_pub < bc_scheduler_get_spin_tick()))
+            if ((fabs(value - param->value) >= CO2_PUB_VALUE_CHANGE) || (param->next_pub < twr_scheduler_get_spin_tick()))
             {
-                bc_radio_pub_co2(&value);
+                twr_radio_pub_co2(&value);
                 param->value = value;
-                param->next_pub = bc_scheduler_get_spin_tick() + CO2_PUB_NO_CHANGE_INTERVAL;
+                param->next_pub = twr_scheduler_get_spin_tick() + CO2_PUB_NO_CHANGE_INTERVAL;
 
                 values.co2_concentation = value;
-                bc_scheduler_plan_now(0);
+                twr_scheduler_plan_now(0);
             }
         }
     }
 }
 
-void battery_event_handler(bc_module_battery_event_t event, void *event_param)
+void battery_event_handler(twr_module_battery_event_t event, void *event_param)
 {
     (void) event;
     (void) event_param;
@@ -450,16 +456,16 @@ void battery_event_handler(bc_module_battery_event_t event, void *event_param)
     float voltage;
     int percentage;
 
-    if(event == BC_MODULE_BATTERY_EVENT_UPDATE)
+    if(event == TWR_MODULE_BATTERY_EVENT_UPDATE)
     {
-        if (bc_module_battery_get_voltage(&voltage))
+        if (twr_module_battery_get_voltage(&voltage))
         {
 
             values.battery_voltage = voltage;
-            bc_radio_pub_battery(&voltage);
+            twr_radio_pub_battery(&voltage);
         }
 
-        if (bc_module_battery_get_charge_level(&percentage))
+        if (twr_module_battery_get_charge_level(&percentage))
         {
             values.battery_pct = percentage;
         }
